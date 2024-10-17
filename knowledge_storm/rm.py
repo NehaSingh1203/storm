@@ -11,7 +11,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import Qdrant
 from qdrant_client import QdrantClient
 
-from .utils import WebPageHelper
+from .utils  import WebPageHelper
 
 
 class YouRM(dspy.Retrieve):
@@ -969,8 +969,36 @@ class TavilySearchRM(dspy.Retrieve):
                     print(f"Error occurs when searching query {query}: {e}")
 
         return collected_results
+import httplib2
+from googleapiclient.http import HttpRequest
+from googleapiclient.errors import HttpError
+
+class CustomHttp(httplib2.Http):
+    def __init__(self, user_agent=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)  # Initialize the parent class
+        self.user_agent = user_agent
+
+    def request(self, uri, method='GET', *args, **kwargs):
+        # Set the User-Agent in the headers
+        if self.user_agent:
+            if 'headers' not in kwargs:
+                kwargs['headers'] = {}
+            kwargs['headers']['User-Agent'] = self.user_agent
+
+        # Pop the postproc from kwargs if it exists
+        postproc = kwargs.pop('postproc', None)
+
+        # Perform the request
+        response, content = super().request(uri, method, *args, **kwargs)
+
+        # Apply postprocessing if a function was provided
+        if postproc:
+            content = postproc(content)  # Call the postproc function
+
+        return response, content
 
 
+#Neha Custom Googlesearch class for use
 class GoogleSearch(dspy.Retrieve):
     def __init__(
         self,
@@ -981,6 +1009,7 @@ class GoogleSearch(dspy.Retrieve):
         min_char_count: int = 150,
         snippet_chunk_size: int = 1000,
         webpage_helper_max_threads=10,
+        user_agent = None
     ):
         """
         Params:
@@ -995,6 +1024,7 @@ class GoogleSearch(dspy.Retrieve):
             webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
         """
         super().__init__(k=k)
+        self.CustomHttp = CustomHttp(user_agent=user_agent)  # Pass user agent here
         try:
             from googleapiclient.discovery import build
         except ImportError as err:
@@ -1021,7 +1051,7 @@ class GoogleSearch(dspy.Retrieve):
             self.is_valid_source = lambda x: True
 
         self.service = build(
-            "customsearch", "v1", developerKey=self.google_search_api_key
+            "customsearch", "v1", developerKey=self.google_search_api_key,http=self.CustomHttp
         )
         self.webpage_helper = WebPageHelper(
             min_char_count=min_char_count,
@@ -1055,7 +1085,7 @@ class GoogleSearch(dspy.Retrieve):
         self.usage += len(queries)
 
         url_to_results = {}
-
+    
         for query in queries:
             try:
                 response = (
