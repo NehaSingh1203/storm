@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Union, Literal, Optional
-
+import csv
 import dspy
 
 from .modules.article_generation import StormArticleGenerationModule
@@ -443,3 +443,46 @@ class STORMWikiRunner(Engine):
             self.run_article_polishing_module(
                 draft_article=draft_article, remove_duplicate=remove_duplicate
             )
+ # Neha 
+class CustomSTORMWikiRunner(STORMWikiRunner):
+    def __init__(self, engine_args, lm_configs, search_runner):
+        super().__init__(engine_args, lm_configs, search_runner)
+
+    def run_multiple_terms(self, terms, standard_prompt):
+        results = []
+
+        for term in terms:
+            topic = f"{standard_prompt} {term}"
+            try:
+                self.run(
+                    topic=topic,
+                    do_research=True,
+                    do_generate_outline=True,
+                    do_generate_article=True,
+                    do_polish_article=True,
+                )
+                self.post_run()
+                article_content = self.summary()
+                results.append((term, article_content))
+            except Exception as e:
+                logging.error(f"Error processing term '{term}': {e}")
+                print(f"Error processing term '{term}': {e}")
+                results.append((term, "Error occurred during processing."))
+
+        return results
+
+    def save_to_csv(self, results, output_path):
+        try:
+            with open(output_path, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Search Term', 'Article Content'])
+                for term, content in results:
+                    content = self.replace_sources(content)
+                    writer.writerow([term, content])
+        except Exception as e:
+            logging.error(f"Failed to save results to CSV: {e}")
+
+    def replace_sources(self, content):
+        # Replace citations with custom logic
+        return content.replace("(1)", "Source A").replace("(2)", "Source B")
+ 
