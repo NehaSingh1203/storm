@@ -19,6 +19,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 from trafilatura import extract
+import requests
+from bs4 import BeautifulSoup
+import trafilatura
+from playwright.sync_api import sync_playwright
 
 from .lm import OpenAIModel
 
@@ -664,14 +668,54 @@ class WebPageHelper:
         )
 
     def download_webpage(self, url: str):
-        try:
-            res = self.httpx_client.get(url, timeout=4)
+        '''try:
+            res = self.httpx_client.get(url, timeout=60)
             if res.status_code >= 400:
                 res.raise_for_status()
             return res.content
         except httpx.HTTPError as exc:
             print(f"Error while requesting {exc.request.url!r} - {exc!r}")
-            return None
+            return None'''
+        try:
+        # Step 1: Use HEAD request to check URL and handle redirects
+            response = requests.head(url, allow_redirects=True, timeout=60)
+            if response.status_code >= 400:
+                response.raise_for_status()
+            
+            # Get the final resolved URL after redirects
+            resolved_url = response.url
+
+            # Step 2: Try to fetch and extract content using trafilatura
+            downloaded = trafilatura.fetch_url(resolved_url)
+            if downloaded:
+                text = trafilatura.extract(downloaded)
+                if text:
+                    return text
+
+            # Step 3: If trafilatura fails, use BeautifulSoup to extract content
+            res = self.httpx_client.get(resolved_url, timeout=60)
+            if res.status_code >= 400:
+                res.raise_for_status()
+            
+            soup = BeautifulSoup(res.content, "html.parser")
+            body_text = soup.get_text(strip=True)
+            if body_text:
+                return body_text
+
+            # Step 4: If both trafilatura and BeautifulSoup fail, use Playwright
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(resolved_url, timeout=60000)  # Timeout in milliseconds
+                page_content = page.content()
+                browser.close()
+                return page_content
+
+        except requests.RequestException as exc:
+            print(f"Error with requests: {exc}")
+        except Exception as e:
+            print(f"Error while processing URL: {url}, Error: {e}")
+        return None
 
     def urls_to_articles(self, urls: List[str]) -> Dict:
         with concurrent.futures.ThreadPoolExecutor(
