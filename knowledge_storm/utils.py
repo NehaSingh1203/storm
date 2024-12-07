@@ -19,6 +19,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 from trafilatura import extract
+from trafilatura import fetch_url
 import requests
 from bs4 import BeautifulSoup
 import trafilatura
@@ -667,7 +668,7 @@ class WebPageHelper:
             ],
         )
 
-    def download_webpage(self, url: str):
+    #def download_webpage(self, url: str):
         '''try:
             res = self.httpx_client.get(url, timeout=60)
             if res.status_code >= 400:
@@ -676,57 +677,62 @@ class WebPageHelper:
         except httpx.HTTPError as exc:
             print(f"Error while requesting {exc.request.url!r} - {exc!r}")
             return None'''
+    def download_webpage(self, url: str):
         try:
-        # Step 1: Use HEAD request to check URL and handle redirects
-            response = requests.head(url, allow_redirects=True, timeout=60)
-            if response.status_code >= 400:
-                response.raise_for_status()
-            
-            # Get the final resolved URL after redirects
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.head(url, allow_redirects=True, timeout=60, headers=headers)
             resolved_url = response.url
 
-            # Step 2: Try to fetch and extract content using trafilatura
-            downloaded = trafilatura.fetch_url(resolved_url)
+            # Handle non-HTML content (skip PDFs)
+            if url.endswith('.pdf') or 'application/pdf' in response.headers.get('Content-Type', ''):
+                print(f"Skipping PDF or non-HTML content: {resolved_url}")
+                return None
+
+            # Trafilatura: Fetch and return raw HTML content (no extraction here)
+            downloaded = fetch_url(resolved_url)
             if downloaded:
-                text = trafilatura.extract(downloaded)
-                if text:
-                    return text
+                return downloaded  # Return raw HTML content, not processed text
 
-            # Step 3: If trafilatura fails, use BeautifulSoup to extract content
-            res = self.httpx_client.get(resolved_url, timeout=60)
-            if res.status_code >= 400:
-                res.raise_for_status()
-            
-            soup = BeautifulSoup(res.content, "html.parser")
-            body_text = soup.get_text(strip=True)
-            if body_text:
-                return body_text
+            # Fallback: BeautifulSoup if Trafilatura fails
+            res = requests.get(resolved_url, timeout=60, headers=headers)
+            if res.status_code == 200:
+                return res.content  # Return raw HTML content
 
-            # Step 4: If both trafilatura and BeautifulSoup fail, use Playwright
+            # Playwright for JavaScript-rendered pages
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
                 page = browser.new_page()
-                page.goto(resolved_url, timeout=60000)  # Timeout in milliseconds
-                page_content = page.content()
+                page.goto(resolved_url, timeout=60000)
+                page_content = page.content()  # Get raw HTML content
                 browser.close()
-                return page_content
+                return page_content  # Return raw HTML content
 
-        except requests.RequestException as exc:
-            print(f"Error with requests: {exc}")
         except Exception as e:
-            print(f"Error while processing URL: {url}, Error: {e}")
-        return None
+            print(f"Error processing {url}: {e}")
+            return None
+
+
+
+
+    def safe_download_webpage(self, url: str):
+        """Wrapper to handle exceptions for individual URL downloads."""
+        try:
+            return self.download_webpage(url)
+        except Exception as e:
+            print(f"Error while downloading {url}: {e}")
+            return None
 
     def urls_to_articles(self, urls: List[str]) -> Dict:
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.max_thread_num
-        ) as executor:
-            htmls = list(executor.map(self.download_webpage, urls))
+        """Download and extract articles from a list of URLs."""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_thread_num) as executor:
+            htmls = list(executor.map(self.safe_download_webpage, urls))
 
         articles = {}
-
         for h, u in zip(htmls, urls):
             if h is None:
+                print(f"Skipping URL {u} due to extraction failure.")
                 continue
             article_text = extract(
                 h,
@@ -736,8 +742,12 @@ class WebPageHelper:
             )
             if article_text is not None and len(article_text) > self.min_char_count:
                 articles[u] = {"text": article_text}
-
+            else:
+                print(f"Content extracted from {u} is too short or invalid.")
+        
+        print(f"Extracted {len(articles)} articles successfully.")
         return articles
+
 
     def urls_to_snippets(self, urls: List[str]) -> Dict:
         articles = self.urls_to_articles(urls)
@@ -745,7 +755,6 @@ class WebPageHelper:
             articles[u]["snippets"] = self.text_splitter.split_text(articles[u]["text"])
 
         return articles
-
 
 def user_input_appropriateness_check(user_input):
     my_openai_model = OpenAIModel(
