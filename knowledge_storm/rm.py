@@ -1008,8 +1008,8 @@ class GoogleSearch(dspy.Retrieve):
         is_valid_source: Callable = None,
         min_char_count: int = 150,
         snippet_chunk_size: int = 1000,
-        webpage_helper_max_threads=10,
-        user_agent = None
+        webpage_helper_max_threads=10
+        #user_agent = None
     ):
         """
         Params:
@@ -1024,7 +1024,7 @@ class GoogleSearch(dspy.Retrieve):
             webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
         """
         super().__init__(k=k)
-        self.CustomHttp = CustomHttp(user_agent=user_agent)  # Pass user agent here
+        #self.CustomHttp = CustomHttp(user_agent=user_agent)  # Pass user agent here
         try:
             from googleapiclient.discovery import build
         except ImportError as err:
@@ -1051,7 +1051,7 @@ class GoogleSearch(dspy.Retrieve):
             self.is_valid_source = lambda x: True
 
         self.service = build(
-            "customsearch", "v1", developerKey=self.google_search_api_key,http=self.CustomHttp
+            "customsearch", "v1", developerKey=self.google_search_api_key
         )
         self.webpage_helper = WebPageHelper(
             min_char_count=min_char_count,
@@ -1123,3 +1123,88 @@ class GoogleSearch(dspy.Retrieve):
             collected_results.append(r)
 
         return collected_results
+
+
+#neha
+from googleapiclient.discovery import build
+class GoogleSearchAPI:
+    def __init__(
+        self,
+        google_search_api_key: str,
+        google_cse_id: str,
+        k: int = 3,
+        is_valid_source: Callable = None,
+        min_char_count: int = 150,
+        snippet_chunk_size: int = 1000,
+        max_threads: int = 10
+    ):
+        """
+        Initialize the GoogleSearchAPI class.
+
+        Params:
+            google_search_api_key: Google API key for Custom Search API.
+            google_cse_id: Custom search engine ID for the API.
+            k: Number of top results to retrieve.
+            is_valid_source: Function to validate sources.
+            min_char_count: Minimum character count to consider an article.
+            snippet_chunk_size: Size of each snippet in characters.
+            max_threads: Max threads for snippet extraction.
+        """
+        self.google_search_api_key = google_search_api_key
+        self.google_cse_id = google_cse_id
+        self.k = k
+        self.is_valid_source = is_valid_source or (lambda x: True)
+        self.service = build("customsearch", "v1", developerKey=self.google_search_api_key)
+        self.usage = 0
+
+    def search(self, query: Union[str, List[str]], exclude_urls: List[str] = []) -> List[dict]:
+        """
+        Search using Google Custom Search API for the top `k` results.
+
+        Args:
+            query (str or list): Single query or list of queries.
+            exclude_urls (list): URLs to exclude from results.
+
+        Returns:
+            List of results containing title, url, description, and snippets.
+        """
+        queries = [query] if isinstance(query, str) else query
+        self.usage += len(queries)
+
+        collected_results = []
+        for q in queries:
+            try:
+                response = self.service.cse().list(
+                    q=q,
+                    cx=self.google_cse_id,
+                    num=self.k
+                ).execute()
+
+                for item in response.get("items", []):
+                    if self.is_valid_source(item["link"]) and item["link"] not in exclude_urls:
+                        result = {
+                            "title": item["title"],
+                            "url": item["link"],
+                            "description": item.get("snippet", ""),
+                            "snippets": self._get_snippets(item["link"])
+                        }
+                        collected_results.append(result)
+
+            except Exception as e:
+                logging.error(f"Error occurred while searching query '{q}': {e}")
+
+        return collected_results
+
+    def _get_snippets(self, url: str) -> List[str]:
+        """
+        Placeholder for snippet retrieval from the URL.
+        
+        Args:
+            url: URL from which to extract snippets.
+        
+        Returns:
+            List of snippets.
+        """
+        # Simulating snippets for the example
+        return ["Snippet 1 from the URL", "Snippet 2 from the URL"]
+
