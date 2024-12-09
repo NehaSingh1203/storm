@@ -1,11 +1,12 @@
 import os
 from knowledge_storm import STORMWikiRunnerArguments, STORMWikiLMConfigs
-
 from knowledge_storm import STORMWikiRunner
-
 from knowledge_storm.lm import OpenAIModel
 from knowledge_storm import GoogleSearch
 import csv
+#from googleapiclient.discovery import build
+import re
+
 
 class CustomSTORMWikiRunner(STORMWikiRunner):
     def __init__(self, engine_args, lm_configs, search_runner):
@@ -49,9 +50,9 @@ class CustomSTORMWikiRunner(STORMWikiRunner):
         return content.replace("(1)", "Source A").replace("(2)", "Source B")
  
 
-os.environ['OPENAI_API_KEY'] = 'your_openai_key'
-os.environ['GOOGLE_SEARCH_API_KEY'] = "API_key"
-os.environ['GOOGLE_CSE_ID'] = "CSE_ID"
+os.environ['OPENAI_API_KEY'] = 'key'
+os.environ['GOOGLE_SEARCH_API_KEY'] = "Key" 
+os.environ['GOOGLE_CSE_ID'] = "Key" 
 
 # Configuration for OpenAI models
 lm_configs = STORMWikiLMConfigs()
@@ -72,20 +73,29 @@ lm_configs.set_question_asker_lm(gpt_35)
 lm_configs.set_outline_gen_lm(gpt_4)
 lm_configs.set_article_gen_lm(gpt_4)
 lm_configs.set_article_polish_lm(gpt_4)
-engine_args = STORMWikiRunnerArguments(output_dir="F:\SearchStrategyProject\Stormtool")
+engine_args = STORMWikiRunnerArguments(output_dir="F:\\SearchStrategyProject\\Stormtool")
 # Instantiate the search runner with Google Search API
-rm = GoogleSearch(google_search_api_key=os.getenv("GOOGLE_SEARCH_API_KEY"), google_cse_id=os.getenv("GOOGLE_CSE_ID"),user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3')
+rm = GoogleSearch(google_search_api_key=os.getenv("GOOGLE_SEARCH_API_KEY"), google_cse_id=os.getenv("GOOGLE_CSE_ID"))
 def main():
     # Configuration and initialization...
+    topic = input('Topic: ')
     
-    search_terms = read_search_terms("F:\SearchStrategyProject\Stormtool/search_terms.txt")  # Implement this function
-    standard_prompt = read_standard_prompt("F:\SearchStrategyProject\Stormtool/standard_prompt.txt")  # Implement this function
+    #search_terms = read_search_terms("F:\SearchStrategyProject\Stormtool/search_terms.txt")  # Implement this function
+    #standard_prompt = read_standard_prompt("F:\SearchStrategyProject\Stormtool/standard_prompt.txt")  # Implement this function
 
-    runner = CustomSTORMWikiRunner(engine_args, lm_configs, rm)
-    results = runner.run_multiple_terms(search_terms, standard_prompt)
+    runner = STORMWikiRunner(engine_args, lm_configs, rm)
+    runner.run(
+    topic=topic,
+    do_research=True,
+    do_generate_outline=True,
+    do_generate_article=True,
+    do_polish_article=True,
+    )
+    runner.post_run()
+    runner.summary()
     
     # Save results to CSV
-    runner.save_to_csv(results, "F:\SearchStrategyProject\Stormtool/articles.csv")
+    #runner.save_to_csv(results, "F:\SearchStrategyProject\Stormtool/articles.csv")
 
 def read_search_terms(file_path):
     with open(file_path, 'r') as f:
